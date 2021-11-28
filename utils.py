@@ -135,18 +135,35 @@ class KA:
 
 
 class SocketUtil:
+    packet_size = 8192
+
     @staticmethod
     def send_msg(sock, msg):
+        # add packet size
         msg = struct.pack('>I', len(msg)) + msg
 
-        sock.send(msg)
+        while msg is not None:
+            if len(msg) > SocketUtil.packet_size:
+                sock.send(msg[:SocketUtil.packet_size])
+                msg = msg[SocketUtil.packet_size:]
+            else:
+                sock.send(msg)
+                msg = None
 
     @staticmethod
     def broadcast_msg(sock, msg, port):
         # broadcast packet size
         sock.sendto(pickle.dumps(len(msg)), ('<broadcast>', port))
+
         # broadcast signature list
-        sock.sendto(msg, ('<broadcast>', port))
+        while msg is not None:
+            if len(msg) > SocketUtil.packet_size:
+                sock.sendto(msg[:SocketUtil.packet_size],
+                            ('<broadcast>', port))
+                msg = msg[SocketUtil.packet_size:]
+            else:
+                sock.sendto(msg, ('<broadcast>', port))
+                msg = None
 
     @staticmethod
     def recv_msg(sock):
@@ -171,14 +188,12 @@ class SocketUtil:
 
             data.extend(buffer)
 
-        return data
+        return bytes(data)
 
     @staticmethod
     def recv_broadcast(sock):
         # receive the packet size
         n = pickle.loads(sock.recv(1024))
-        
-        # receive data from the server
-        recv_data = sock.recv(n)
 
-        return recv_data
+        # receive data from the server
+        return SocketUtil.recvall(sock, n)

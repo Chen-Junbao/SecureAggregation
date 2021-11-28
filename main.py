@@ -5,11 +5,13 @@ import logging
 import argparse
 import threading
 
+from tqdm import tqdm
 from utils import SIG
 from entities.user import User
 from entities.server import Server, SignatureRequestHandler
 
 entities = {}       # the dict storing all users and the server
+U_1 = []            # ids of all online users
 
 
 def init(user_ids: list) -> dict:
@@ -30,10 +32,13 @@ def init(user_ids: list) -> dict:
 
     pub_key_map = {}    # the dict storing all users' public keys
 
-    for id in user_ids:
-        pub_key, priv_key = SIG.gen(nbits=1024)
-        pub_key_map[id] = pub_key
-        entities[id] = User(id, pub_key, priv_key)
+    with tqdm(total=len(user_ids), desc='Generating keys', unit_scale=True, unit='') as bar:
+        for id in user_ids:
+            pub_key, priv_key = SIG.gen(nbits=1024)
+            pub_key_map[id] = pub_key
+            entities[id] = User(id, pub_key, priv_key)
+
+            bar.update(1)
 
     for id in user_ids:
         entities[id].pub_key_map = pub_key_map
@@ -85,7 +90,8 @@ def advertise_keys(user_ids: list) -> bool:
         wait_time -= 1
 
     if len(SignatureRequestHandler.signature_list) >= t:
-        entities["server"].broadcast_signatures(20000)
+        global U_1
+        U_1 = entities["server"].broadcast_signatures(20000)
 
         return True
     else:
@@ -98,7 +104,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Initialize one round of federated learning.")
     parser.add_argument("-u", "--user", metavar='user_number', type=int,
-                        default=10, help="the number of users")
+                        default=50, help="the number of users")
     parser.add_argument("-k", "--key", metavar="key_path", type=str,
                         default="./keys", help="the root path where to save all keys.")
 
@@ -125,3 +131,5 @@ if __name__ == "__main__":
     time.sleep(1)
 
     print("{:=^80s}".format("Finish Advertising keys"))
+
+    logging.info("online users: " + ','.join(U_1))
