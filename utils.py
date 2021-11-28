@@ -1,5 +1,7 @@
 import os
 import rsa
+import pickle
+import struct
 import multiprocessing
 
 from Crypto.Cipher import AES
@@ -38,13 +40,13 @@ class SIG:
         return pub_key, priv_key
 
     @staticmethod
-    def sign(message: bytes, priv_key, hash_method="SHA-1"):
-        return rsa.sign(message, priv_key, hash_method)
+    def sign(msg: bytes, priv_key, hash_method="SHA-1"):
+        return rsa.sign(msg, priv_key, hash_method)
 
     @staticmethod
-    def verify(message: bytes, signature: bytes, pub_key) -> bool:
+    def verify(msg: bytes, signature: bytes, pub_key) -> bool:
         try:
-            rsa.verify(message, signature, pub_key)
+            rsa.verify(msg, signature, pub_key)
 
             return True
 
@@ -101,11 +103,8 @@ class KA:
     """
 
     @staticmethod
-    def gen(path: str = None) -> tuple:
-        """Generates public and private keys, and saves them.
-
-        Args:
-            path (str): path to store public and private keys.
+    def gen() -> tuple:
+        """Generates Diffie-Hellman public and private keys.
 
         Returns:
             Tuple[PublicKey, PrivateKey]: the public and private keys.
@@ -113,15 +112,6 @@ class KA:
 
         dh = DiffieHellman()
         pub_key, priv_key = dh.get_public_key(), dh.get_private_key()
-
-        if path is not None:
-            os.makedirs(path)
-
-            # save the pub_key and priv_key
-            with open(os.path.join(path, "pub"), 'wb') as f:
-                f.write(pub_key)
-            with open(os.path.join(path, "priv"), 'wb') as f:
-                f.write(priv_key)
 
         return pub_key, priv_key
 
@@ -142,3 +132,53 @@ class KA:
         shared_key = dh.generate_shared_key(pub_key)
 
         return shared_key
+
+
+class SocketUtil:
+    @staticmethod
+    def send_msg(sock, msg):
+        msg = struct.pack('>I', len(msg)) + msg
+
+        sock.send(msg)
+
+    @staticmethod
+    def broadcast_msg(sock, msg, port):
+        # broadcast packet size
+        sock.sendto(pickle.dumps(len(msg)), ('<broadcast>', port))
+        # broadcast signature list
+        sock.sendto(msg, ('<broadcast>', port))
+
+    @staticmethod
+    def recv_msg(sock):
+        raw_msg_len = SocketUtil.recvall(sock, 4)
+
+        if not raw_msg_len:
+            return None
+
+        msg_len = struct.unpack('>I', raw_msg_len)[0]
+
+        return SocketUtil.recvall(sock, msg_len)
+
+    @staticmethod
+    def recvall(sock, n):
+        data = bytearray()
+
+        while len(data) < n:
+            buffer = sock.recv(n - len(data))
+
+            if not buffer:
+                return None
+
+            data.extend(buffer)
+
+        return data
+
+    @staticmethod
+    def recv_broadcast(sock):
+        # receive the packet size
+        n = pickle.loads(sock.recv(1024))
+        
+        # receive data from the server
+        recv_data = sock.recv(n)
+
+        return recv_data
