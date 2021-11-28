@@ -10,6 +10,7 @@ from utils import SocketUtil
 class SignatureRequestHandler(socketserver.BaseRequestHandler):
     user_num = 0
     signature_list = []
+    U_1 = []
 
     def handle(self) -> None:
         # receive data from the client
@@ -18,6 +19,7 @@ class SignatureRequestHandler(socketserver.BaseRequestHandler):
         signature = pickle.loads(data)
 
         SignatureRequestHandler.signature_list.append(signature)
+        SignatureRequestHandler.U_1.append(signature["id"])
 
         received_num = len(SignatureRequestHandler.signature_list)
 
@@ -34,13 +36,16 @@ class Server:
         self.tcp_server = socketserver.ThreadingTCPServer(
             (self.host, self.port), SignatureRequestHandler)
 
-    def broadcast_signatures(self, port: int):
+    def broadcast_signatures(self, port: int) -> list:
         """Broadcasts all users' key pairs and corresponding signatures.
 
         Args:
             port (int): the port used to broadcast the message.
+
+        Returns:
+            list: ids of all online users。
         """
-        
+
         server = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
         # reuse port so we will be able to run multiple clients on single (host, port).
@@ -56,3 +61,5 @@ class Server:
         logging.info("broadcasted all signatures.")
 
         server.close()
+
+        return SignatureRequestHandler.U_1
