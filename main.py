@@ -1,17 +1,20 @@
 import sys
 import time
 import pickle
+import random
 import logging
 import argparse
-import threading
 
 from tqdm import tqdm
-from utils import SIG
+from threading import Thread
+from utils import *
 from entities.user import User
-from entities.server import Server, SignatureRequestHandler
+from entities.server import *
 
 entities = {}       # the dict storing all users and the server
+t = 0               # threshold value of Shamir's t-out-of-n Secret Sharing
 U_1 = []            # ids of all online users
+U_2 = []            # ids of all users sending the ciphertexts
 
 
 def init(user_ids: list) -> dict:
@@ -24,9 +27,8 @@ def init(user_ids: list) -> dict:
     entities["server"] = Server()
     SignatureRequestHandler.user_num = len(user_ids)
 
-    # start the server
-    server_thread = threading.Thread(
-        target=entities["server"].tcp_server.serve_forever)
+    # start the signature socket server
+    server_thread = Thread(target=entities["server"].signature_server.serve_forever)
     server_thread.daemon = True
     server_thread.start()
 
@@ -43,9 +45,13 @@ def init(user_ids: list) -> dict:
     for id in user_ids:
         entities[id].pub_key_map = pub_key_map
 
+    global t
+    t = int(0.8 * len(user_ids))
+
 
 def advertise_keys(user_ids: list) -> bool:
-    """Each user generates two key pairs (c & s) and corresposneding signatures, then sends them to the server. The server collects all users' key pairs and then broadcasts them to all users.
+    """Each user generates two key pairs (c & s) and corresposneding signatures, then sends them to the server.
+       The server collects all users' key pairs and then broadcasts them to all users.
 
     Args:
         user_ids (list): all users' ids.
@@ -54,6 +60,7 @@ def advertise_keys(user_ids: list) -> bool:
         bool: If the server collects at least t messages from individual users, returns True. Otherwise, returns False.
     """
     user_num = len(user_ids)
+    server = entities["server"]
 
     for id in user_ids:
         user = entities[id]
@@ -63,7 +70,7 @@ def advertise_keys(user_ids: list) -> bool:
 
         signature = user.gen_signature()
 
-        data = pickle.dumps({
+        msg = pickle.dumps({
             "id": user.id,
             "c_pk": user.c_pk,
             "s_pk": user.s_pk,
@@ -71,27 +78,70 @@ def advertise_keys(user_ids: list) -> bool:
         })
 
         # send c_pk, s_pk and the corresponding signature
-        user.send(data, entities["server"].host, entities["server"].port)
+        user.send(msg, server.host, server.signature_port)
 
         # listen the broadcast from the server
-        thread = threading.Thread(target=user.listen_broadcast, args=[20000])
+        thread = Thread(target=user.listen_broadcast, args=[server.broadcast_port])
         thread.daemon = True
         thread.start()
 
     time.sleep(0.2)
 
-    logging.info("all users have sent their signatures")
-
-    t = 0.8 * user_num     # threshold value for SecretSharing
-
     wait_time = 10
-    while len(SignatureRequestHandler.signature_list) != user_num and wait_time > 0:
+    while len(SignatureRequestHandler.U_1) != user_num and wait_time > 0:
         time.sleep(1)
         wait_time -= 1
 
-    if len(SignatureRequestHandler.signature_list) >= t:
+    if len(SignatureRequestHandler.U_1) >= t:
         global U_1
-        U_1 = entities["server"].broadcast_signatures(20000)
+        U_1 = server.broadcast_signatures(server.broadcast_port)
+
+        logging.info("{} users have sent signatures".format(len(U_1)))
+
+        return True
+    else:
+        # the number of the received messages is less than the threshold value for SecretSharing, abort
+        return False
+
+
+def share_keys() -> bool:
+    # all online users verify the signatures
+    server = entities["server"]
+    SecretShareRequestHandler.U_1_num = len(U_1)
+
+    # start the secret sharing socket server
+    server_thread = Thread(target=server.ss_server.serve_forever)
+    server_thread.daemon = True
+    server_thread.start()
+
+    for u in U_1:
+        user = entities[u]
+
+        if not user.ver_signature():
+            sys.exit(1)
+
+        user.gen_shares(U_1, t, server.host, server.ss_port)
+
+        # listen shares from the server
+        thread = Thread(target=user.listen_ciphertexts)
+        thread.daemon = True
+        thread.start()
+
+    time.sleep(0.2)
+
+    wait_time = 10
+    while len(SecretShareRequestHandler.U_2) != len(U_1) and wait_time > 0:
+        time.sleep(1)
+        wait_time -= 1
+
+    if len(SecretShareRequestHandler.U_2) >= t:
+        global U_2
+        U_2 = SecretShareRequestHandler.U_2
+
+        logging.info("{} users have sent ciphertexts".format(len(SecretShareRequestHandler.U_2)))
+
+        for u in U_2:
+            server.send_ciphertexts(u, entities[u].port)
 
         return True
     else:
@@ -101,10 +151,9 @@ def advertise_keys(user_ids: list) -> bool:
 
 if __name__ == "__main__":
     # parse args
-    parser = argparse.ArgumentParser(
-        description="Initialize one round of federated learning.")
+    parser = argparse.ArgumentParser(description="Initialize one round of federated learning.")
     parser.add_argument("-u", "--user", metavar='user_number', type=int,
-                        default=50, help="the number of users")
+                        default=10, help="the number of users")
     parser.add_argument("-k", "--key", metavar="key_path", type=str,
                         default="./keys", help="the root path where to save all keys.")
 
@@ -133,3 +182,5 @@ if __name__ == "__main__":
     print("{:=^80s}".format("Finish Advertising keys"))
 
     logging.info("online users: " + ','.join(U_1))
+
+    share_keys()

@@ -4,9 +4,11 @@ import pickle
 import struct
 import multiprocessing
 
-from Crypto.Cipher import AES
-from Crypto.Random import get_random_bytes
+from Cryptodome.Cipher import AES
+from Cryptodome.Hash import SHA256
+from Cryptodome.Random import get_random_bytes
 from diffiehellman import DiffieHellman
+from secretsharing import SecretSharer
 
 
 class SIG:
@@ -25,8 +27,7 @@ class SIG:
             Tuple[PublicKey, PrivateKey]: the public and private keys.
         """
 
-        pub_key, priv_key = rsa.newkeys(
-            nbits, poolsize=multiprocessing.cpu_count())
+        pub_key, priv_key = rsa.newkeys(nbits, poolsize=multiprocessing.cpu_count())
 
         if path is not None:
             os.makedirs(path)
@@ -117,24 +118,32 @@ class KA:
 
     @staticmethod
     def agree(priv_key: bytes, pub_key: bytes) -> bytes:
-        """Generates the shared key between two users.
+        """Generates the shared key of two users, and produce 256 bit digest of the shared key.
 
         Args:
             priv_key (bytes): the private key of one user.
             pub_key (bytes): the public key of the other user.
 
         Returns:
-            bytes: the shared key between the two users.
+            bytes: the 256 bit shared key of the two users.
         """
         dh = DiffieHellman()
 
         dh.set_private_key(priv_key)
         shared_key = dh.generate_shared_key(pub_key)
 
-        return shared_key
+        # in order to use AES, produce the 256 bit digest of the shared key using SHA-256
+        h = SHA256.new()
+        h.update(shared_key)
+        key_256 = h.digest()
+
+        return key_256
 
 
 class SocketUtil:
+    """Sends and receives messages using socket.
+    """
+
     packet_size = 8192
 
     @staticmethod
@@ -158,8 +167,7 @@ class SocketUtil:
         # broadcast signature list
         while msg is not None:
             if len(msg) > SocketUtil.packet_size:
-                sock.sendto(msg[:SocketUtil.packet_size],
-                            ('<broadcast>', port))
+                sock.sendto(msg[:SocketUtil.packet_size], ('<broadcast>', port))
                 msg = msg[SocketUtil.packet_size:]
             else:
                 sock.sendto(msg, ('<broadcast>', port))
@@ -197,3 +205,41 @@ class SocketUtil:
 
         # receive data from the server
         return SocketUtil.recvall(sock, n)
+
+
+class SS:
+    """Shamir's t-out-of-n Secret Sharing.
+    """
+
+    @staticmethod
+    def share(secret: object, t: int, n: int) -> list:
+        """Generates a set of shares.
+
+        Args:
+            secret (object): the secret to be split.
+            t (int): the threshold of being able to reconstruct the secret.
+            n (int): the number of the shares.
+
+        Returns:
+            list: a set of shares.
+        """
+
+        secret_bytes = pickle.dumps(secret)
+
+        # convert bytes to hex
+        secret_hex = secret_bytes.hex()
+
+        shares = SecretSharer.split_secret(secret_hex, t, n)
+
+        return shares
+
+    @staticmethod
+    def recon(shares: list):
+        secret_hex = SecretSharer.recover_secret(shares)
+
+        # convert hex to bytes
+        secret_bytes = bytes.fromhex(secret_hex)
+
+        secret = pickle.loads(secret_bytes)
+
+        return secret

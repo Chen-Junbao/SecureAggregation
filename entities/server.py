@@ -1,5 +1,4 @@
 import pickle
-import struct
 import socket
 import logging
 import socketserver
@@ -9,32 +8,64 @@ from utils import SocketUtil
 
 class SignatureRequestHandler(socketserver.BaseRequestHandler):
     user_num = 0
-    signature_list = []
+    ka_pub_keys_map = {}    # {id: {c_pk: bytes, s_pk, bytes, signature: bytes}}
     U_1 = []
 
     def handle(self) -> None:
         # receive data from the client
         data = SocketUtil.recv_msg(self.request)
 
-        signature = pickle.loads(data)
+        msg = pickle.loads(data)
+        id = msg["id"]
+        del msg["id"]
 
-        SignatureRequestHandler.signature_list.append(signature)
-        SignatureRequestHandler.U_1.append(signature["id"])
+        SignatureRequestHandler.ka_pub_keys_map[id] = msg
+        SignatureRequestHandler.U_1.append(id)
 
-        received_num = len(SignatureRequestHandler.signature_list)
+        received_num = len(SignatureRequestHandler.U_1)
 
         logging.info("[%d/%d] | received %s's signature", received_num,
                      SignatureRequestHandler.user_num, self.client_address[0])
+
+
+class SecretShareRequestHandler(socketserver.BaseRequestHandler):
+    U_1_num = 0
+    ciphertexts_map = {}         # {u:{v1: ciphertexts, v2: ciphertexts}}
+    U_2 = []
+
+    def handle(self) -> None:
+        # receive data from the client
+        data = SocketUtil.recv_msg(self.request)
+
+        msg = pickle.loads(data)
+        id = msg[0]
+
+        # retrieve each user's ciphertexts
+        for key, value in msg[1].items():
+            if key not in SecretShareRequestHandler.ciphertexts_map:
+                SecretShareRequestHandler.ciphertexts_map[key] = {}
+            SecretShareRequestHandler.ciphertexts_map[key][id] = value
+        
+        SecretShareRequestHandler.U_2.append(id)
+
+        received_num = len(SecretShareRequestHandler.U_2)
+
+        logging.info("[%d/%d] | received %s's ciphertexts", received_num,
+                     SecretShareRequestHandler.U_1_num, self.client_address[0])
 
 
 class Server:
     def __init__(self):
         self.id = "0"
         self.host = socket.gethostname()
-        self.port = 10000
+        self.broadcast_port = 10000
+        self.signature_port = 20000
+        self.ss_port = 20001
 
-        self.tcp_server = socketserver.ThreadingTCPServer(
-            (self.host, self.port), SignatureRequestHandler)
+        self.signature_server = socketserver.ThreadingTCPServer(
+            (self.host, self.signature_port), SignatureRequestHandler)
+        self.ss_server = socketserver.ThreadingTCPServer(
+            (self.host, self.ss_port), SecretShareRequestHandler)
 
     def broadcast_signatures(self, port: int) -> list:
         """Broadcasts all users' key pairs and corresponding signatures.
@@ -54,7 +85,7 @@ class Server:
         # enable broadcasting mode
         server.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
 
-        data = pickle.dumps(SignatureRequestHandler.signature_list)
+        data = pickle.dumps(SignatureRequestHandler.ka_pub_keys_map)
 
         SocketUtil.broadcast_msg(server, data, port)
 
@@ -63,3 +94,19 @@ class Server:
         server.close()
 
         return SignatureRequestHandler.U_1
+
+    def send_ciphertexts(self, id: str, port: int):
+        """Sends each user all ciphertexts encrypted for it.
+
+        Args:
+            id (str): the receiver's id.
+            port (int): port for users to receive the ciphertexts.
+        """
+
+        sock = socket.socket()
+
+        sock.connect(("127.0.0.1", port))
+
+        msg = pickle.dumps(SecretShareRequestHandler.ciphertexts_map[id])
+
+        SocketUtil.send_msg(sock, msg)
