@@ -122,6 +122,11 @@ def share_keys() -> bool:
 
         user.gen_shares(U_1, t, server.host, server.ss_port)
 
+        # listen shares from the server
+        thread = Thread(target=user.listen_ciphertexts)
+        thread.daemon = True
+        thread.start()
+
     time.sleep(0.2)
 
     wait_time = 10
@@ -130,7 +135,13 @@ def share_keys() -> bool:
         wait_time -= 1
 
     if len(SecretShareRequestHandler.U_2) >= t:
+        global U_2
+        U_2 = SecretShareRequestHandler.U_2
+
         logging.info("{} users have sent ciphertexts".format(len(SecretShareRequestHandler.U_2)))
+
+        for u in U_2:
+            server.send_ciphertexts(u, entities[u].port)
 
         return True
     else:

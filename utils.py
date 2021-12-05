@@ -4,9 +4,9 @@ import pickle
 import struct
 import multiprocessing
 
-from Crypto.Cipher import AES
-from Crypto.Hash import SHA256
-from Crypto.Random import get_random_bytes
+from Cryptodome.Cipher import AES
+from Cryptodome.Hash import SHA256
+from Cryptodome.Random import get_random_bytes
 from diffiehellman import DiffieHellman
 from secretsharing import SecretSharer
 
@@ -118,14 +118,14 @@ class KA:
 
     @staticmethod
     def agree(priv_key: bytes, pub_key: bytes) -> bytes:
-        """Generates the shared key between two users, and produce 256 bit digest of the shared key.
+        """Generates the shared key of two users, and produce 256 bit digest of the shared key.
 
         Args:
             priv_key (bytes): the private key of one user.
             pub_key (bytes): the public key of the other user.
 
         Returns:
-            bytes: the 256 bit shared key between the two users.
+            bytes: the 256 bit shared key of the two users.
         """
         dh = DiffieHellman()
 

@@ -25,6 +25,8 @@ class User:
 
         self.__random_seed = None
 
+        self.ciphertexts = None
+
     def gen_DH_pairs(self):
         self.c_pk, self.__c_sk = KA.gen()
         self.s_pk, self.__s_sk = KA.gen()
@@ -90,6 +92,16 @@ class User:
         sock.close()
 
     def gen_shares(self, U_1: list, t: int, host: str, ss_port: int):
+        """Generates random seed for a PRG, generates t-out-of-U1 shares of the s_sk and random seed,
+           and encrypts these shares using the shared key of the two users.
+
+        Args:
+            U_1 (list): all users who have sent DH key pairs.
+            t (int): the threshold value of secret sharing scheme.
+            host (str): the target host.
+            ss_port (int): the target port.
+        """
+
         # generates a random integer from - 2^20 to 2^20 (to be used as a seed for PRG)
         self.__random_seed = random.randint(-2**20, 2**20)
 
@@ -98,7 +110,7 @@ class User:
         s_sk_shares = SS.share(self.__s_sk, t, n)
         random_seed_shares = SS.share(self.__random_seed, t, n)
 
-        all_ciphertexts = []       # [{id: ciphertext}]
+        all_ciphertexts = {}       # {id: ciphertext}
 
         for i, v in enumerate(U_1):
             if v == self.id:
@@ -111,9 +123,25 @@ class User:
 
             ciphertext = AE.encrypt(shared_key, shared_key, info)
 
-            all_ciphertexts.append({v: ciphertext})
+            all_ciphertexts[v] = ciphertext
 
         msg = pickle.dumps([self.id, all_ciphertexts])
 
-        # send all shares of s_sk and the random seed to the server
+        # send all shares of the s_sk and random seed to the server
         self.send(msg, host, ss_port)
+
+    def listen_ciphertexts(self):
+        """Listens to the server for the ciphertexts.
+        """
+        sock = socket.socket()
+
+        sock.bind(("", self.port))
+        sock.listen()
+
+        conn, _ = sock.accept()
+
+        data = SocketUtil.recv_msg(conn)
+
+        self.ciphertexts = pickle.loads(data)
+
+        logging.info("received ciphertext from the server")

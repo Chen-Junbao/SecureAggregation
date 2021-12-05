@@ -30,7 +30,7 @@ class SignatureRequestHandler(socketserver.BaseRequestHandler):
 
 class SecretShareRequestHandler(socketserver.BaseRequestHandler):
     U_1_num = 0
-    ciphertexts_map = {}         # {id: ciphertexts}
+    ciphertexts_map = {}         # {u:{v1: ciphertexts, v2: ciphertexts}}
     U_2 = []
 
     def handle(self) -> None:
@@ -40,7 +40,12 @@ class SecretShareRequestHandler(socketserver.BaseRequestHandler):
         msg = pickle.loads(data)
         id = msg[0]
 
-        SecretShareRequestHandler.ciphertexts_map[id] = msg[1]
+        # retrieve each user's ciphertexts
+        for key, value in msg[1].items():
+            if key not in SecretShareRequestHandler.ciphertexts_map:
+                SecretShareRequestHandler.ciphertexts_map[key] = {}
+            SecretShareRequestHandler.ciphertexts_map[key][id] = value
+        
         SecretShareRequestHandler.U_2.append(id)
 
         received_num = len(SecretShareRequestHandler.U_2)
@@ -89,3 +94,19 @@ class Server:
         server.close()
 
         return SignatureRequestHandler.U_1
+
+    def send_ciphertexts(self, id: str, port: int):
+        """Sends each user all ciphertexts encrypted for it.
+
+        Args:
+            id (str): the receiver's id.
+            port (int): port for users to receive the ciphertexts.
+        """
+
+        sock = socket.socket()
+
+        sock.connect(("127.0.0.1", port))
+
+        msg = pickle.dumps(SecretShareRequestHandler.ciphertexts_map[id])
+
+        SocketUtil.send_msg(sock, msg)
