@@ -1,7 +1,9 @@
-import logging
 import pickle
 import random
 import socket
+import logging
+import sys
+import numpy as np
 
 from utils import *
 from threading import Thread
@@ -10,6 +12,7 @@ from threading import Thread
 class User:
     def __init__(self, id: str, pub_key: bytes, priv_key: bytes):
         self.id = id
+        self.host = socket.gethostname()
         self.port = int("1" + id.zfill(4))
 
         self.pub_key = pub_key
@@ -50,11 +53,11 @@ class User:
 
         return status
 
-    def send(self, data: bytes, host: str, port: int):
-        """Sends data to host:port.
+    def send(self, msg: bytes, host: str, port: int):
+        """Sends message to host:port.
 
         Args:
-            data (bytes): the data to be sent.
+            msg (bytes): the message to be sent.
             host (str): the target host.
             port (int): the target port.
         """
@@ -62,7 +65,7 @@ class User:
         sock = socket.socket()
         sock.connect((host, port))
 
-        SocketUtil.send_msg(sock, data)
+        SocketUtil.send_msg(sock, msg)
 
         sock.close()
 
@@ -91,19 +94,19 @@ class User:
 
         sock.close()
 
-    def gen_shares(self, U_1: list, t: int, host: str, ss_port: int):
+    def gen_shares(self, U_1: list, t: int, host: str, port: int):
         """Generates random seed for a PRG, generates t-out-of-U1 shares of the s_sk and random seed,
            and encrypts these shares using the shared key of the two users.
 
         Args:
             U_1 (list): all users who have sent DH key pairs.
             t (int): the threshold value of secret sharing scheme.
-            host (str): the target host.
-            ss_port (int): the target port.
+            host (str): the server's host.
+            port (int): the server's port used to receive these shares.
         """
 
-        # generates a random integer from - 2^20 to 2^20 (to be used as a seed for PRG)
-        self.__random_seed = random.randint(-2**20, 2**20)
+        # generates a random integer from 0 to 2**32 - 1 (to be used as a seed for PRG)
+        self.__random_seed = random.randint(0, 2**32 - 1)
 
         n = len(U_1)
 
@@ -128,7 +131,7 @@ class User:
         msg = pickle.dumps([self.id, all_ciphertexts])
 
         # send all shares of the s_sk and random seed to the server
-        self.send(msg, host, ss_port)
+        self.send(msg, host, port)
 
     def listen_ciphertexts(self):
         """Listens to the server for the ciphertexts.
@@ -141,7 +144,78 @@ class User:
         conn, _ = sock.accept()
 
         data = SocketUtil.recv_msg(conn)
-
         self.ciphertexts = pickle.loads(data)
 
         logging.info("received ciphertext from the server")
+
+        sock.close()
+
+    def mask_gradients(self, U_2: list, gradients: np.ndarray, host: str, port: int):
+        """Masks user's own gradients and sends them to the server.
+
+        Args:
+            U_2 (list): all users who have sent the ciphertexts.
+            gradients (np.ndarray): user's raw gradients.
+            host (str): the server's host.
+            port (int): the server's port used to receive the masked gradients.
+        """
+        # generate user's own private mask vector p_u
+        np.random.seed(self.__random_seed)
+        priv_mask_vec = np.random.random(gradients.shape)
+
+        # generate random vectors p_u_v for each user
+        random_vec_list = []
+        for v in U_2:
+            if v == self.id:
+                continue
+
+            v_s_pk = self.ka_pub_keys_map[v]["s_pk"]
+            shared_key = KA.agree(self.__s_sk, v_s_pk)
+
+            random.seed(shared_key)
+            np.random.seed(random.randint(0, 2**32 - 1))
+
+            if int(self.id) > int(v):
+                random_vec_list.append(np.random.random(gradients.shape))
+            else:
+                random_vec_list.append(-np.random.random(gradients.shape))
+
+        masked_gradients = gradients + priv_mask_vec + np.sum(np.array(random_vec_list), axis=0)
+
+        msg = pickle.dumps([self.id, masked_gradients])
+
+        # send the masked gradients to the server
+        self.send(msg, host, port)
+
+    def consistency_check(self, host: str, port: int, status_list: list):
+        sock = socket.socket()
+
+        sock.bind(("", self.port))
+        sock.listen()
+
+        conn, _ = sock.accept()
+
+        data = SocketUtil.recv_msg(conn)
+        U_3 = pickle.loads(data)
+
+        logging.info("received U_3 from the server")
+
+        signature = SIG.sign(data, self.__priv_key)
+        msg = pickle.dumps([self.id, signature])
+
+        self.send(msg, host, port)
+
+        conn, _ = sock.accept()
+        data = SocketUtil.recv_msg(conn)
+        signature_map = pickle.loads(data)
+
+        for key, value in signature_map.items():
+            res = SIG.verify(pickle.dumps(U_3), value, self.pub_key_map[key])
+
+            if res is False:
+                logging.error("user {}'s signature is wrong!".format(key))
+                status_list.append(False)
+
+                sys.exit(1)
+
+        sock.close()
