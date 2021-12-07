@@ -30,6 +30,8 @@ class User:
 
         self.ciphertexts = None
 
+        self.U_3 = None
+
     def gen_DH_pairs(self):
         self.c_pk, self.__c_sk = KA.gen()
         self.s_pk, self.__s_sk = KA.gen()
@@ -63,6 +65,7 @@ class User:
         """
 
         sock = socket.socket()
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
         sock.connect((host, port))
 
         SocketUtil.send_msg(sock, msg)
@@ -136,7 +139,9 @@ class User:
     def listen_ciphertexts(self):
         """Listens to the server for the ciphertexts.
         """
+        
         sock = socket.socket()
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
 
         sock.bind(("", self.port))
         sock.listen()
@@ -150,18 +155,20 @@ class User:
 
         sock.close()
 
-    def mask_gradients(self, U_2: list, gradients: np.ndarray, host: str, port: int):
+    def mask_gradients(self, gradients: np.ndarray, host: str, port: int):
         """Masks user's own gradients and sends them to the server.
 
         Args:
-            U_2 (list): all users who have sent the ciphertexts.
             gradients (np.ndarray): user's raw gradients.
             host (str): the server's host.
             port (int): the server's port used to receive the masked gradients.
         """
+
+        U_2 = list(self.ciphertexts.keys())
+
         # generate user's own private mask vector p_u
-        np.random.seed(self.__random_seed)
-        priv_mask_vec = np.random.random(gradients.shape)
+        rs = np.random.RandomState(self.__random_seed)
+        priv_mask_vec = rs.random(gradients.shape)
 
         # generate random vectors p_u_v for each user
         random_vec_list = []
@@ -173,12 +180,11 @@ class User:
             shared_key = KA.agree(self.__s_sk, v_s_pk)
 
             random.seed(shared_key)
-            np.random.seed(random.randint(0, 2**32 - 1))
-
+            rs = np.random.RandomState(random.randint(0, 2**32 - 1))
             if int(self.id) > int(v):
-                random_vec_list.append(np.random.random(gradients.shape))
+                random_vec_list.append(rs.random(gradients.shape))
             else:
-                random_vec_list.append(-np.random.random(gradients.shape))
+                random_vec_list.append(-rs.random(gradients.shape))
 
         masked_gradients = gradients + priv_mask_vec + np.sum(np.array(random_vec_list), axis=0)
 
@@ -189,6 +195,7 @@ class User:
 
     def consistency_check(self, host: str, port: int, status_list: list):
         sock = socket.socket()
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
 
         sock.bind(("", self.port))
         sock.listen()
@@ -196,7 +203,7 @@ class User:
         conn, _ = sock.accept()
 
         data = SocketUtil.recv_msg(conn)
-        U_3 = pickle.loads(data)
+        self.U_3 = pickle.loads(data)
 
         logging.info("received U_3 from the server")
 
@@ -210,7 +217,7 @@ class User:
         signature_map = pickle.loads(data)
 
         for key, value in signature_map.items():
-            res = SIG.verify(pickle.dumps(U_3), value, self.pub_key_map[key])
+            res = SIG.verify(pickle.dumps(self.U_3), value, self.pub_key_map[key])
 
             if res is False:
                 logging.error("user {}'s signature is wrong!".format(key))
@@ -219,3 +226,36 @@ class User:
                 sys.exit(1)
 
         sock.close()
+
+    def unmask_gradients(self, host: str, port: str):
+        """Sends the shares of offline users' private key and online users' random seed to the server.
+
+        Args:
+            host (str): the server's host.
+            port (str): the server's port used to receive the shares.
+        """
+
+        U_2 = list(self.ciphertexts.keys())
+
+        priv_key_shares_map = {}
+        random_seed_shares_map = {}
+
+        for v in U_2:
+            if self.id == v:
+                continue
+
+            v_c_pk = self.ka_pub_keys_map[v]["c_pk"]
+            shared_key = KA.agree(self.__c_sk, v_c_pk)
+
+            info = pickle.loads(AE.decrypt(shared_key, shared_key, self.ciphertexts[v]))
+
+            if v not in self.U_3:
+                # send the shares of s_sk to the server
+                priv_key_shares_map[v] = info[2]
+            else:
+                # send the shares of random seed to the server
+                random_seed_shares_map[v] = info[3]
+
+        msg = pickle.dumps([self.id, priv_key_shares_map, random_seed_shares_map])
+
+        self.send(msg, host, port)
