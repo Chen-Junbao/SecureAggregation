@@ -19,13 +19,12 @@ class SignatureRequestHandler(socketserver.BaseRequestHandler):
         id = msg["id"]
         del msg["id"]
 
-        SignatureRequestHandler.ka_pub_keys_map[id] = msg
-        SignatureRequestHandler.U_1.append(id)
+        self.ka_pub_keys_map[id] = msg
+        self.U_1.append(id)
 
-        received_num = len(SignatureRequestHandler.U_1)
+        received_num = len(self.U_1)
 
-        logging.info("[%d/%d] | received %s's signature", received_num,
-                     SignatureRequestHandler.user_num, self.client_address[0])
+        logging.info("[%d/%d] | received %s's signature", received_num, self.user_num, self.client_address[0])
 
 
 class SecretShareRequestHandler(socketserver.BaseRequestHandler):
@@ -42,16 +41,53 @@ class SecretShareRequestHandler(socketserver.BaseRequestHandler):
 
         # retrieve each user's ciphertexts
         for key, value in msg[1].items():
-            if key not in SecretShareRequestHandler.ciphertexts_map:
-                SecretShareRequestHandler.ciphertexts_map[key] = {}
-            SecretShareRequestHandler.ciphertexts_map[key][id] = value
-        
-        SecretShareRequestHandler.U_2.append(id)
+            if key not in self.ciphertexts_map:
+                self.ciphertexts_map[key] = {}
+            self.ciphertexts_map[key][id] = value
 
-        received_num = len(SecretShareRequestHandler.U_2)
+        self.U_2.append(id)
 
-        logging.info("[%d/%d] | received %s's ciphertexts", received_num,
-                     SecretShareRequestHandler.U_1_num, self.client_address[0])
+        received_num = len(self.U_2)
+
+        logging.info("[%d/%d] | received %s's ciphertexts", received_num, self.U_1_num, self.client_address[0])
+
+
+class MaskedGradientsRequestHandler(socketserver.BaseRequestHandler):
+    U_2_num = 0
+    masked_gradients_list = []
+    U_3 = []
+
+    def handle(self) -> None:
+        # receive data from the client
+        data = SocketUtil.recv_msg(self.request)
+
+        msg = pickle.loads(data)
+
+        self.U_3.append(msg[0])
+        self.masked_gradients_list.append(msg[1])
+
+        received_num = len(self.U_3)
+
+        logging.info("[%d/%d] | received %s's masked gradients", received_num, self.U_2_num, self.client_address[0])
+
+
+class ConsistencyCheckRequestHandler(socketserver.BaseRequestHandler):
+    U_3_num = 0
+    consistency_check_map = {}
+    U_4 = []
+
+    def handle(self) -> None:
+        data = SocketUtil.recv_msg(self.request)
+
+        msg = pickle.loads(data)
+        id = msg[0]
+
+        self.U_4.append(id)
+        self.consistency_check_map[id] = msg[1]
+
+        received_num = len(self.U_4)
+
+        logging.info("[%d/%d] | received %s's consistency check", received_num, self.U_3_num, self.client_address[0])
 
 
 class Server:
@@ -61,20 +97,23 @@ class Server:
         self.broadcast_port = 10000
         self.signature_port = 20000
         self.ss_port = 20001
+        self.masked_gradients_port = 20002
+        self.consistency_check_port = 20003
 
         self.signature_server = socketserver.ThreadingTCPServer(
             (self.host, self.signature_port), SignatureRequestHandler)
         self.ss_server = socketserver.ThreadingTCPServer(
             (self.host, self.ss_port), SecretShareRequestHandler)
+        self.masked_gradients_server = socketserver.ThreadingTCPServer(
+            (self.host, self.masked_gradients_port), MaskedGradientsRequestHandler)
+        self.consistency_check_server = socketserver.ThreadingTCPServer(
+            (self.host, self.consistency_check_port), ConsistencyCheckRequestHandler)
 
-    def broadcast_signatures(self, port: int) -> list:
+    def broadcast_signatures(self, port: int):
         """Broadcasts all users' key pairs and corresponding signatures.
 
         Args:
             port (int): the port used to broadcast the message.
-
-        Returns:
-            list: ids of all online users。
         """
 
         server = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -93,20 +132,18 @@ class Server:
 
         server.close()
 
-        return SignatureRequestHandler.U_1
-
-    def send_ciphertexts(self, id: str, port: int):
-        """Sends each user all ciphertexts encrypted for it.
+    def send(self, msg: bytes, host: str, port: int):
+        """Sends message to host:port.
 
         Args:
-            id (str): the receiver's id.
-            port (int): port for users to receive the ciphertexts.
+            msg (bytes): the message to be sent.
+            host (str): the target host.
+            port (int): the target port.
         """
 
         sock = socket.socket()
-
-        sock.connect(("127.0.0.1", port))
-
-        msg = pickle.dumps(SecretShareRequestHandler.ciphertexts_map[id])
+        sock.connect((host, port))
 
         SocketUtil.send_msg(sock, msg)
+
+        sock.close()
