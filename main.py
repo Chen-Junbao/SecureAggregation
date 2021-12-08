@@ -13,6 +13,7 @@ from entities.user import User
 from entities.server import *
 
 entities = {}       # the dict storing all users and the server
+wait_time = 300     # maximum waiting time for each round
 t = 0               # threshold value of Shamir's t-out-of-n Secret Sharing
 U_1 = []            # ids of all online users
 U_2 = []            # ids of all users sending the ciphertexts
@@ -95,10 +96,10 @@ def advertise_keys(user_ids: list) -> bool:
 
     time.sleep(0.2)
 
-    wait_time = 10
-    while len(SignatureRequestHandler.U_1) != user_num and wait_time > 0:
+    cnt = 0
+    while len(SignatureRequestHandler.U_1) != user_num and cnt < wait_time:
         time.sleep(1)
-        wait_time -= 1
+        cnt += 1
 
     if len(SignatureRequestHandler.U_1) >= t:
         global U_1
@@ -151,10 +152,10 @@ def share_keys() -> bool:
 
     time.sleep(0.2)
 
-    wait_time = 20
-    while len(SecretShareRequestHandler.U_2) != len(U_1) and wait_time > 0:
+    cnt = 0
+    while len(SecretShareRequestHandler.U_2) != len(U_1) and cnt < wait_time:
         time.sleep(1)
-        wait_time -= 1
+        cnt += 1
 
     if len(SecretShareRequestHandler.U_2) >= t:
         global U_2
@@ -203,10 +204,10 @@ def masked_input_collection(user_gradients: dict) -> bool:
 
     time.sleep(0.2)
 
-    wait_time = 20
-    while len(MaskingRequestHandler.U_3) != len(U_2) and wait_time > 0:
+    cnt = 0
+    while len(MaskingRequestHandler.U_3) != len(U_2) and cnt < wait_time:
         time.sleep(1)
-        wait_time -= 1
+        cnt += 1
 
     if len(MaskingRequestHandler.U_3) >= t:
         global U_3
@@ -243,10 +244,10 @@ def consistency_check() -> int:
 
     time.sleep(0.2)
 
-    wait_time = 20
-    while len(ConsistencyRequestHandler.U_4) != len(U_3) and wait_time > 0:
+    cnt = 0
+    while len(ConsistencyRequestHandler.U_4) != len(U_3) and cnt < wait_time:
         time.sleep(1)
-        wait_time -= 1
+        cnt += 1
 
     if len(ConsistencyRequestHandler.U_4) >= t:
         global U_4
@@ -294,10 +295,10 @@ def unmasking(shape: tuple) -> np.ndarray:
 
     time.sleep(0.2)
 
-    wait_time = 20
-    while len(UnmaskingRequestHandler.U_5) != len(U_4) and wait_time > 0:
+    cnt = 0
+    while len(UnmaskingRequestHandler.U_5) != len(U_4) and cnt < wait_time:
         time.sleep(1)
-        wait_time -= 1
+        cnt += 1
 
     if len(UnmaskingRequestHandler.U_5) >= t:
         logging.info("{} users have sent shares".format(len(UnmaskingRequestHandler.U_5)))
@@ -313,11 +314,9 @@ def unmasking(shape: tuple) -> np.ndarray:
 
 if __name__ == "__main__":
     # parse args
-    parser = argparse.ArgumentParser(description="Initialize one round of federated learning.")
-    parser.add_argument("-u", "--user", metavar='user_number', type=int,
-                        default=10, help="the number of users")
-    parser.add_argument("-k", "--key", metavar="key_path", type=str,
-                        default="./keys", help="the root path where to save all keys.")
+    parser = argparse.ArgumentParser(description="Secure aggregation protocol for federated learning")
+    parser.add_argument("-u", "--user", type=int, default=10, help="the number of users")
+    parser.add_argument("-t", "--wait", type=int, default=300, help="maximum waiting time for each round")
 
     args = parser.parse_args()
 
@@ -326,6 +325,7 @@ if __name__ == "__main__":
         format='%(asctime)s %(module)s %(levelname)s: %(message)s',
         datefmt='%Y-%m-%d %H:%M:%S')
 
+    wait_time = args.wait
     user_ids = [str(id) for id in range(1, args.user + 1)]
 
     init(user_ids)
@@ -392,7 +392,6 @@ if __name__ == "__main__":
 
     print("{:=^80s}".format("Finish Unmasking"))
 
-    print((np.sum(np.array(input_gradients), axis=0) - output))
     assert ((np.sum(np.array(input_gradients), axis=0) - output) < np.full(shape, 1e-6)).all()
 
     print("{:=^80s}".format("Finish Secure Aggregation"))
