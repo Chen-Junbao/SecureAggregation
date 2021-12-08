@@ -1,12 +1,14 @@
+import sys
 import pickle
 import random
 import socket
 import logging
-import sys
 import numpy as np
 
 from utils import *
-from threading import Thread
+
+# compatible with Windows
+socket.SO_REUSEPORT = socket.SO_REUSEADDR
 
 
 class User:
@@ -139,7 +141,7 @@ class User:
     def listen_ciphertexts(self):
         """Listens to the server for the ciphertexts.
         """
-        
+
         sock = socket.socket()
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
 

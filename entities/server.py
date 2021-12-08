@@ -7,6 +7,9 @@ import numpy as np
 
 from utils import *
 
+# compatible with Windows
+socket.SO_REUSEPORT = socket.SO_REUSEADDR
+
 
 class SignatureRequestHandler(socketserver.BaseRequestHandler):
     user_num = 0
@@ -197,7 +200,7 @@ class Server:
         Returns:
             np.ndarray: the sum of the raw gradients.
         """
-        
+
         # reconstruct random vectors p_v_u
         recon_random_vec_list = []
         for u in SecretShareRequestHandler.U_2:
