@@ -4,8 +4,6 @@ This is an unofficial implementation of Secure Aggregation Protocol. The details
 
 Based on Secure Aggregation Protocol, a verifiable secure aggregation protocol for cross-device federated learning is proposed. The details of the protocol can be found in the original paper: [(TDSC 2021) VERSA: Verifiable Secure Aggregation for Cross-Device Federated Learning](https://ieeexplore.ieee.org/abstract/document/9609695).
 
-These protocols are currently implemented through socket programming and multithreaded programming. In the future, docker-compose will be used for standalone simulation.
-
 ## Usage
 
 There are two ways to use the Secure Aggregation Protocol.
