@@ -4,6 +4,8 @@ import rsa
 import pickle
 import socket
 import multiprocessing
+import numpy as np
+import tensorflow as tf
 
 from flask import Flask, request
 
@@ -53,7 +55,6 @@ class SIG:
 
 
 def generate_keys():
-    user_ids = [str(id) for id in range(1, int(sys.argv[1]) + 1)]
     pub_key_map = {}    # the dict storing all users' public keys
     priv_key_map = {}    # the dict storing all users' private keys
 
@@ -65,7 +66,41 @@ def generate_keys():
     return pub_key_map, priv_key_map
 
 
-pub_key_map, priv_key_map = generate_keys()
+def generate_dataset(shape=(784,)) -> dict:
+    """Generate dataset for each user.
+
+    Args:
+        shape (tuple): the sample shape (for MNIST, it can be (784,) or (28, 28, 1)).
+
+    Returns:
+        dataset (dict): all users' datasets and validation dataset.
+    """
+
+    clients_num = len(user_ids)
+    mnist = tf.keras.datasets.mnist
+
+    (x_train, y_train), (x_test, y_test) = mnist.load_data(path="mnist.npz")
+    x_train = (x_train / 255).reshape((-1, *shape))
+    x_test = (x_test / 255).reshape((-1, *shape))
+    x_train = x_train.astype(np.float32)
+    x_test = x_test.astype(np.float32)
+
+    dataset = {}
+    dataset_size = len(y_train)
+    client_dataset_size = dataset_size // clients_num
+
+    for i in range(clients_num - 1):
+        data = {'x': x_train[i * client_dataset_size: (i + 1) * client_dataset_size],
+                'y': y_train[i * client_dataset_size: (i + 1) * client_dataset_size]}
+        dataset[user_ids[i]] = data
+    data = {'x': x_train[(clients_num - 1) * client_dataset_size:],
+            'y': y_train[(clients_num - 1) * client_dataset_size:]}
+    dataset[user_ids[-1]] = data
+
+    dataset["server"] = {'x': x_test, 'y': y_test}
+
+    return dataset
+
 
 app = Flask(__name__)
 
@@ -83,5 +118,27 @@ def get_pub_key():
     return pickle.dumps(data)
 
 
+@app.route("/getDataset")
+def get_model():
+    host = socket.gethostbyaddr(request.remote_addr)[0].split('.')[0]
+    if host != "server":
+        id = host[4:]
+    else:
+        id = host
+
+    data = dataset[id]
+
+    return pickle.dumps(data)
+
+
 if __name__ == "__main__":
+    user_ids = [str(id) for id in range(1, int(sys.argv[1]) + 1)]
+
+    if len(sys.argv) == 3 and sys.argv[2] == "CNN":
+        dataset = generate_dataset((28, 28, 1))
+    else:
+        dataset = generate_dataset()
+
+    pub_key_map, priv_key_map = generate_keys()
+
     app.run(host="0.0.0.0")

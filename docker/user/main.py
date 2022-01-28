@@ -1,10 +1,40 @@
+import os
 import sys
 import pickle
 import logging
 import requests
 import numpy as np
+import tensorflow as tf
 
 from user import User
+from tensorflow.keras.initializers import RandomNormal
+
+os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
+
+
+def create_model(name):
+    if name == "MLP":
+        return tf.keras.models.Sequential([
+            tf.keras.layers.InputLayer(input_shape=(784,)),
+            tf.keras.layers.Dense(256, activation='relu'),
+            tf.keras.layers.BatchNormalization(),
+            tf.keras.layers.Dense(10),
+            tf.keras.layers.Softmax()
+        ])
+    elif name == "CNN":
+        return tf.keras.models.Sequential([
+            tf.keras.layers.Conv2D(32, (3, 3), activation='relu', kernel_initializer=RandomNormal(),
+                                   input_shape=(28, 28, 1)),
+            tf.keras.layers.Conv2D(64, (3, 3), activation='relu', kernel_initializer=RandomNormal()),
+            tf.keras.layers.MaxPooling2D(pool_size=(2, 2)),
+            tf.keras.layers.Dropout(0.25),
+            tf.keras.layers.Flatten(),
+            tf.keras.layers.Dense(128, activation='relu', kernel_initializer=RandomNormal()),
+            tf.keras.layers.Dropout(0.5),
+            tf.keras.layers.Dense(10, activation='softmax', kernel_initializer=RandomNormal())
+        ])
+    else:
+        raise Exception("Invalid model name!")
 
 
 def advertise_keys(user):
@@ -35,12 +65,6 @@ def share_keys(user, t):
     user.listen_ciphertexts()
 
 
-def masked_input_collection(user, shape=(2, 2)):
-    gradients = np.random.random(shape)
-    print(gradients)
-    user.mask_gradients(gradients, "server", 20002)
-
-
 if __name__ == "__main__":
     logging.basicConfig(
         level=logging.INFO,
@@ -49,10 +73,16 @@ if __name__ == "__main__":
 
     id = sys.argv[1]
     t = int(sys.argv[2])
+    iteration = int(sys.argv[3])
+
+    # get training dataset
+    dataset_url = "http://ta:5000/getDataset"
+    req = requests.get(dataset_url)
+    dataset = pickle.loads(req.content)
 
     # get public key map and own private key from TA
-    url = "http://ta:5000/getKey"
-    req = requests.get(url)
+    key_url = "http://ta:5000/getKey"
+    req = requests.get(key_url)
     data = pickle.loads(req.content)
 
     user = User(id, data["pubKeyMap"][id], data["privKey"])
@@ -60,12 +90,26 @@ if __name__ == "__main__":
 
     user_ids = user.pub_key_map.keys()
 
-    advertise_keys(user)
+    model = create_model("MLP")
+    optimizer = tf.keras.optimizers.Adam(learning_rate=1e-3)
+    model.compile(optimizer, loss='sparse_categorical_crossentropy', metrics='sparse_categorical_accuracy')
 
-    share_keys(user, t)
+    # train locally
+    for i in range(iteration):
+        # receive global weights
+        global_weights = user.listen_global_weights()
+        model.set_weights(global_weights)
 
-    masked_input_collection(user)
+        model.fit(dataset['x'], dataset['y'], batch_size=8, epochs=20)
 
-    user.consistency_check("server", 20003)
+        gradients = model.get_weights()
 
-    user.unmask_gradients("server", 20004)
+        advertise_keys(user)
+
+        share_keys(user, t)
+
+        user.mask_gradients(gradients, "server", 20002)
+
+        user.consistency_check("server", 20003)
+
+        user.unmask_gradients("server", 20004)
