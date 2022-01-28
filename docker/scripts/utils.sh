@@ -15,9 +15,10 @@ Option:
   -h, --help            Show this help message and exit
   -u, --user int        Set the number of users
   -t, --wait int        Set maximum waiting time for each round
+  -i, --iteration int   Set the iteration of federated learning
 
 Examples:
-  start.sh -u 500 -t 300
+  start.sh -u 500 -t 300 -i 20
 EOF
 }
 

@@ -191,6 +191,20 @@ class Server:
 
         logging.info("stop all servers")
 
+    def clean(self):
+        SignatureRequestHandler.ka_pub_keys_map = {}
+        SignatureRequestHandler.U_1 = []
+        SecretShareRequestHandler.ciphertexts_map = {}
+        SecretShareRequestHandler.U_2 = []
+        MaskingRequestHandler.masked_gradients_list = []
+        MaskingRequestHandler.U_3 = []
+        ConsistencyRequestHandler.consistency_check_map = {}
+        ConsistencyRequestHandler.U_4 = []
+        ConsistencyRequestHandler.status_list = []
+        UnmaskingRequestHandler.priv_key_shares_map = {}
+        UnmaskingRequestHandler.random_seed_shares_map = {}
+        UnmaskingRequestHandler.U_5 = []
+
     def broadcast_signatures(self, port: int):
         """Broadcasts all users' key pairs and corresponding signatures.
 
@@ -231,11 +245,11 @@ class Server:
 
         sock.close()
 
-    def unmask(self, shape: tuple) -> np.ndarray:
+    def unmask(self, shapes: list) -> np.ndarray:
         """Unmasks gradients by reconstructing random vectors and private mask vectors.
 
         Args:
-            shape (tuple): the shape of the raw gradients.
+            shapes (list): the shapes of the raw gradients.
 
         Returns:
             np.ndarray: the sum of the raw gradients.
@@ -250,27 +264,37 @@ class Server:
                 for v in MaskingRequestHandler.U_3:
                     shared_key = KA.agree(priv_key, SignatureRequestHandler.ka_pub_keys_map[v]["s_pk"])
 
-                    random.seed(shared_key)
-                    rs = np.random.RandomState(random.randint(0, 2**32 - 1))
-
                     if int(u) > int(v):
-                        recon_random_vec_list.append(rs.random(shape))
+                        recon_random_vec = []
+                        for shape in shapes:
+                            random.seed(shared_key)
+                            rs = np.random.RandomState(random.randint(0, 2**32 - 1))
+                            recon_random_vec.append(rs.random(shape))
+                        recon_random_vec_list.append(recon_random_vec)
                     else:
-                        recon_random_vec_list.append(-rs.random(shape))
+                        recon_random_vec = []
+                        for shape in shapes:
+                            random.seed(shared_key)
+                            rs = np.random.RandomState(random.randint(0, 2**32 - 1))
+                            recon_random_vec.append(-rs.random(shape))
+                        recon_random_vec_list.append(recon_random_vec)
 
         # reconstruct private mask vectors p_u
         recon_priv_vec_list = []
         for u in MaskingRequestHandler.U_3:
-            random_seed = SS.recon(UnmaskingRequestHandler.random_seed_shares_map[u])
-            rs = np.random.RandomState(random_seed)
-            priv_mask_vec = rs.random(shape)
+            priv_mask_vec = []
+            for shape in shapes:
+                random_seed = SS.recon(UnmaskingRequestHandler.random_seed_shares_map[u])
+                rs = np.random.RandomState(random_seed)
+                priv_mask_vec.append(rs.random(shape))
 
             recon_priv_vec_list.append(priv_mask_vec)
 
-        masked_gradients = np.sum(np.array(MaskingRequestHandler.masked_gradients_list), axis=0)
-        recon_priv_vec = np.sum(np.array(recon_priv_vec_list), axis=0)
-        recon_random_vec = np.sum(np.array(recon_random_vec_list), axis=0)
+        masked_gradients = np.sum(MaskingRequestHandler.masked_gradients_list, axis=0)
+        num = len(MaskingRequestHandler.masked_gradients_list)
+        recon_priv_vec_sum = np.sum(recon_priv_vec_list, axis=0)
+        recon_random_vec_sum = np.sum(recon_random_vec_list, axis=0)
 
-        output = masked_gradients - recon_priv_vec + recon_random_vec
+        output = np.sum([masked_gradients, -recon_priv_vec_sum, recon_random_vec_sum], axis=0) / num
 
         return output

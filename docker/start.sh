@@ -45,6 +45,10 @@ else
             WAIT_TIME=$2
             shift
             ;;
+        -i)
+            ITERATION=$2 # training iterations for federated learning
+            shift
+            ;;
         *)
             errorln "Unknown flag: $key"
             printHelp
@@ -65,14 +69,19 @@ docker network create sa
 successln "Successfully created sa network"
 infoln "Creating TA"
 docker run -d --name ta -h ta --network sa sa/ta:1.0 python -u main.py $USER_NUM
+# wait for preparing dataset and keys
+while [[ $(docker logs ta 2>&1 | grep "Running on" | wc -l) -eq 0 ]]; do
+    sleep 1
+done
 successln "Successfully created TA"
-sleep 10
-infoln "Creating server"
-docker run -d --name server -h server --network sa sa/server:1.0 $USER_NUM $t $WAIT_TIME
-successln "Successfully created server"
-sleep 5
+
 infoln "Creating $USER_NUM users"
 for i in $user_ids; do
-    docker run -d --gpus all --name user"$i" -h user"$i" --network sa sa/user:1.0 python -u main.py $i $t
+    docker run -d --gpus all --name user"$i" -h user"$i" --network sa sa/user:1.0 python -u main.py $i $t $ITERATION
 done
 successln "Successfully created $USER_NUM users"
+infoln "Creating server"
+
+docker run -d --name server -h server -v $PWD/server:/server --network sa sa/server:1.0 $USER_NUM $t $WAIT_TIME $ITERATION
+successln "Successfully created server"
+sleep 5

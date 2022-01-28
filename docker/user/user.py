@@ -70,6 +70,30 @@ class User:
 
         sock.close()
 
+    def listen_global_weights(self):
+        """Listens to the server for the weights of the global model.
+
+        Returns:
+            list: the weights of the global model.
+        """
+
+        sock = socket.socket()
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+
+        sock.bind(("", self.port))
+        sock.listen()
+
+        conn, _ = sock.accept()
+
+        data = SocketUtil.recv_msg(conn)
+        global_weights = pickle.loads(data)
+
+        logging.info("received global weights from the server")
+
+        sock.close()
+
+        return global_weights
+
     def listen_broadcast(self, port: int):
         """Listens to the server's broadcast, and saves all users' key pairs and corresponding signatures.
 
@@ -168,8 +192,10 @@ class User:
         U_2 = list(self.ciphertexts.keys())
 
         # generate user's own private mask vector p_u
-        rs = np.random.RandomState(self.__random_seed)
-        priv_mask_vec = rs.random(gradients.shape)
+        priv_mask_vec = []
+        for g in gradients:
+            rs = np.random.RandomState(self.__random_seed)
+            priv_mask_vec.append(rs.random(g.shape))
 
         # generate random vectors p_u_v for each user
         random_vec_list = []
@@ -180,14 +206,22 @@ class User:
             v_s_pk = self.ka_pub_keys_map[v]["s_pk"]
             shared_key = KA.agree(self.__s_sk, v_s_pk)
 
-            random.seed(shared_key)
-            rs = np.random.RandomState(random.randint(0, 2**32 - 1))
             if int(self.id) > int(v):
-                random_vec_list.append(rs.random(gradients.shape))
+                random_vec = []
+                for g in gradients:
+                    random.seed(shared_key)
+                    rs = np.random.RandomState(random.randint(0, 2**32 - 1))
+                    random_vec.append(rs.random(g.shape))
+                random_vec_list.append(random_vec)
             else:
-                random_vec_list.append(-rs.random(gradients.shape))
+                random_vec = []
+                for g in gradients:
+                    random.seed(shared_key)
+                    rs = np.random.RandomState(random.randint(0, 2**32 - 1))
+                    random_vec.append(-rs.random(g.shape))
+                random_vec_list.append(random_vec)
 
-        masked_gradients = gradients + priv_mask_vec + np.sum(np.array(random_vec_list), axis=0)
+        masked_gradients = np.sum([gradients, priv_mask_vec, np.sum(random_vec_list, axis=0)], axis=0)
 
         msg = pickle.dumps([self.id, masked_gradients])
 
