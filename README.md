@@ -1,8 +1,6 @@
 # Secure Aggregation
 
-This is an unofficial implementation of Secure Aggregation Protocol. The details of the protocol can be found in the original paper: [(CCS '17) Practical Secure Aggregation for Privacy-Preserving Machine Learning](https://dl.acm.org/doi/abs/10.1145/3133956.3133982).
-
-Based on Secure Aggregation Protocol, a verifiable secure aggregation protocol for cross-device federated learning is proposed. The details of the protocol can be found in the original paper: [(TDSC 2021) VERSA: Verifiable Secure Aggregation for Cross-Device Federated Learning](https://ieeexplore.ieee.org/abstract/document/9609695).
+This is an unofficial implementation of Secure Aggregation Protocol. The details of the protocol can be found in the original paper: [(CCS'17) Practical Secure Aggregation for Privacy-Preserving Machine Learning](https://dl.acm.org/doi/abs/10.1145/3133956.3133982).
 
 ## Usage
 
@@ -25,9 +23,9 @@ $ cd secureaggregation/docker
 $ ./scripts/build.sh
 ```
 
-- Simulate 100 users and set the waiting time to 60 seconds:
+- Simulate 100 users and set the waiting time and iteration to 60 seconds and 20, respectively:
 ```
-$ ./start.sh -u 100 -t 60
+$ ./start.sh -u 100 -t 60 -i 20
 ```
 
 ### Single Machine
@@ -45,13 +43,6 @@ $ python main.py -h
 ```
 
 - Simulate 100 users and set the waiting time to 300 seconds:
-
 ```
-$ python main.py -u 100 -t 300
-```
-
-- VERSA:
-```
-$ git checkout versa
 $ python main.py -u 100 -t 300
 ```
