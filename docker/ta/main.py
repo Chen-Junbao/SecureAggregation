@@ -133,8 +133,9 @@ def get_model():
 
 if __name__ == "__main__":
     user_ids = [str(id) for id in range(1, int(sys.argv[1]) + 1)]
+    model_name = sys.argv[2]
 
-    if len(sys.argv) == 3 and sys.argv[2] == "CNN":
+    if model_name == "CNN":
         dataset = generate_dataset((28, 28, 1))
     else:
         dataset = generate_dataset()

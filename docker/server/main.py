@@ -179,6 +179,7 @@ if __name__ == "__main__":
     t = int(sys.argv[2])
     wait_time = int(sys.argv[3])
     iteration = int(sys.argv[4])
+    model_name = sys.argv[5]
 
     logging.basicConfig(
         level=logging.INFO,
@@ -195,7 +196,7 @@ if __name__ == "__main__":
     SignatureRequestHandler.user_num = user_num
     server.serve_all()
 
-    model = create_model("MLP")
+    model = create_model(model_name)
     optimizer = tf.keras.optimizers.Adam(learning_rate=1e-3)
     model.compile(optimizer, loss='sparse_categorical_crossentropy', metrics='sparse_categorical_accuracy')
 

@@ -25,6 +25,12 @@ function clean() {
     fi
 }
 
+USER_NUM=10
+WAIT_TIME=100
+ITERATION=10
+MODEL="MLP"
+BATCH_SIZE=28
+
 # parse command-line args
 if [[ $# -lt 1 ]]; then
     printHelp
@@ -33,20 +39,34 @@ else
     while [[ $# -ge 1 ]]; do
         key="$1"
         case $key in
-        -h)
+        -h | --help)
             printHelp
             exit 0
             ;;
-        -u)
+        -u | --user)
             USER_NUM=$2
             shift
             ;;
-        -t)
+        -t | --wait)
             WAIT_TIME=$2
             shift
             ;;
-        -i)
+        -i | --iteration)
             ITERATION=$2 # training iterations for federated learning
+            shift
+            ;;
+        --model)
+            MODEL=$2 # the name of the trained model
+
+            if [[ $MODEL != "CNN" && $MODEL != "MLP" ]]; then
+                errorln "Invalid model name, CNN or MLP are supported!"
+                exit 1
+            fi
+
+            shift
+            ;;
+        --batchsize)
+            BATCH_SIZE=$2
             shift
             ;;
         *)
@@ -68,7 +88,7 @@ clean
 docker network create sa
 successln "Successfully created sa network"
 infoln "Creating TA"
-docker run -d --name ta -h ta --network sa sa/ta:1.0 python -u main.py $USER_NUM
+docker run -d --name ta -h ta --network sa sa/ta:1.0 python -u main.py $USER_NUM $MODEL
 # wait for preparing dataset and keys
 while [[ $(docker logs ta 2>&1 | grep "Running on" | wc -l) -eq 0 ]]; do
     sleep 1
@@ -77,11 +97,11 @@ successln "Successfully created TA"
 
 infoln "Creating $USER_NUM users"
 for i in $user_ids; do
-    docker run -d --gpus all --name user"$i" -h user"$i" --network sa sa/user:1.0 python -u main.py $i $t $ITERATION
+    docker run -d --gpus all --name user"$i" -h user"$i" --network sa sa/user:1.0 python -u main.py $i $t $ITERATION $MODEL $BATCH_SIZE
 done
 successln "Successfully created $USER_NUM users"
 infoln "Creating server"
 
-docker run -d --name server -h server -v $PWD/server:/server --network sa sa/server:1.0 $USER_NUM $t $WAIT_TIME $ITERATION
+docker run -d --name server -h server -v $PWD/server:/server --network sa sa/server:1.0 $USER_NUM $t $WAIT_TIME $ITERATION $MODEL
 successln "Successfully created server"
 sleep 5

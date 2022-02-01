@@ -74,6 +74,8 @@ if __name__ == "__main__":
     id = sys.argv[1]
     t = int(sys.argv[2])
     iteration = int(sys.argv[3])
+    model_name = sys.argv[4]
+    batch_size = int(sys.argv[5])
 
     # get training dataset
     dataset_url = "http://ta:5000/getDataset"
@@ -90,7 +92,7 @@ if __name__ == "__main__":
 
     user_ids = user.pub_key_map.keys()
 
-    model = create_model("MLP")
+    model = create_model(model_name)
     optimizer = tf.keras.optimizers.Adam(learning_rate=1e-3)
     model.compile(optimizer, loss='sparse_categorical_crossentropy', metrics='sparse_categorical_accuracy')
 
@@ -100,7 +102,7 @@ if __name__ == "__main__":
         global_weights = user.listen_global_weights()
         model.set_weights(global_weights)
 
-        model.fit(dataset['x'], dataset['y'], batch_size=8, epochs=20)
+        model.fit(dataset['x'], dataset['y'], batch_size=batch_size, epochs=20)
 
         gradients = model.get_weights()
 

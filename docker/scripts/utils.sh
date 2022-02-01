@@ -6,7 +6,7 @@ C_GREEN='\033[0;32m'
 C_BLUE='\033[0;34m'
 
 function printHelp() {
-    cat <<EOF
+  cat <<EOF
 Usage:  start.sh [OPTIONS] [ARG...]
 
 Secure aggregation protocol for federated learning
@@ -16,9 +16,11 @@ Option:
   -u, --user int        Set the number of users
   -t, --wait int        Set maximum waiting time for each round
   -i, --iteration int   Set the iteration of federated learning
+  --model str           Set the trained model (MLP or CNN)
+  --batchsize int       Set the training batch size
 
 Examples:
-  start.sh -u 500 -t 300 -i 20
+  start.sh -u 500 -t 300 -i 20 --model CNN --batchsize 28
 EOF
 }
 
