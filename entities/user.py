@@ -158,7 +158,7 @@ class User:
         sock.close()
 
     def mask_gradients(self, gradients: np.ndarray, host: str, port: int):
-        """Masks user's own gradients and sends them to the server.
+        """Masks user's own gradients and generates corresponding verification gradients. Then, sends them to the server.
 
         Args:
             gradients (np.ndarray): user's raw gradients.
@@ -168,12 +168,16 @@ class User:
 
         U_2 = list(self.ciphertexts.keys())
 
-        # generate user's own private mask vector p_u
-        rs = np.random.RandomState(self.__random_seed)
-        priv_mask_vec = rs.random(gradients.shape)
+        # generate user's own private mask vector p_u_0 and p_u_1
+        rs = np.random.RandomState(self.__random_seed | 0)
+        priv_mask_vec_0 = rs.random(gradients.shape)
+        rs = np.random.RandomState(self.__random_seed | 1)
+        priv_mask_vec_1 = rs.random(gradients.shape)
 
-        # generate random vectors p_u_v for each user
-        random_vec_list = []
+        # generate random vectors p_u_v_0 and p_u_v_1 for each user
+        random_vec_0_list = []
+        random_vec_1_list = []
+        alpha = 0
         for v in U_2:
             if v == self.id:
                 continue
@@ -182,15 +186,34 @@ class User:
             shared_key = KA.agree(self.__s_sk, v_s_pk)
 
             random.seed(shared_key)
-            rs = np.random.RandomState(random.randint(0, 2**32 - 1))
+            s_u_v = random.randint(0, 2**32 - 1)
+            alpha = (alpha + s_u_v) % (2 ** 32)
+
+            # expand s_u_v into two random vectors
+            rs = np.random.RandomState(s_u_v | 0)
+            p_u_v_0 = rs.random(gradients.shape)
+            rs = np.random.RandomState(s_u_v | 1)
+            p_u_v_1 = rs.random(gradients.shape)
             if int(self.id) > int(v):
-                random_vec_list.append(rs.random(gradients.shape))
+                random_vec_0_list.append(p_u_v_0)
+                random_vec_1_list.append(p_u_v_1)
             else:
-                random_vec_list.append(-rs.random(gradients.shape))
+                random_vec_0_list.append(-p_u_v_0)
+                random_vec_1_list.append(-p_u_v_1)
 
-        masked_gradients = gradients + priv_mask_vec + np.sum(np.array(random_vec_list), axis=0)
+        # expand α into two random vectors
+        alpha = 10000
+        rs = np.random.RandomState(alpha | 0)
+        self.__a = rs.random(gradients.shape)
+        rs = np.random.RandomState(alpha | 1)
+        self.__b = rs.random(gradients.shape)
 
-        msg = pickle.dumps([self.id, masked_gradients])
+        verification_code = self.__a * gradients + self.__b
+
+        masked_gradients = gradients + priv_mask_vec_0 + np.sum(np.array(random_vec_0_list), axis=0)
+        verification_gradients = verification_code + priv_mask_vec_1 + np.sum(np.array(random_vec_1_list), axis=0)
+
+        msg = pickle.dumps([self.id, masked_gradients, verification_gradients])
 
         # send the masked gradients to the server
         self.send(msg, host, port)
@@ -261,3 +284,8 @@ class User:
         msg = pickle.dumps([self.id, priv_key_shares_map, random_seed_shares_map])
 
         self.send(msg, host, port)
+
+    def verify(self, output_gradients, verification_gradients, num_U_3):
+        gradients_prime = self.__a * output_gradients + num_U_3 * self.__b
+
+        return ((gradients_prime - verification_gradients) < np.full(output_gradients.shape, 1e-6)).all()

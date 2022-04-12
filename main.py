@@ -277,7 +277,7 @@ def unmasking(shape: tuple) -> np.ndarray:
         shape (tuple): the shape of the raw gradients.
 
     Returns:
-        np.ndarray: the sum of the raw gradients.
+        Tuple[np.ndarray, np.ndarray]: the sum of the raw gradients and verification gradients.
     """
 
     server = entities["server"]
@@ -303,9 +303,9 @@ def unmasking(shape: tuple) -> np.ndarray:
     if len(UnmaskingRequestHandler.U_5) >= t:
         logging.info("{} users have sent shares".format(len(UnmaskingRequestHandler.U_5)))
 
-        output = server.unmask(shape)
+        output, verification = server.unmask(shape)
 
-        return output
+        return output, verification
 
     else:
         # the number of the received messages is less than the threshold value for SecretSharing, abort
@@ -384,7 +384,7 @@ if __name__ == "__main__":
 
     print("{:=^80s}".format("Finish Consistency Check"))
 
-    output = unmasking(shape)
+    output, verification = unmasking(shape)
     if output is None:
         logging.error("insufficient shares received by the server!")
 
@@ -395,3 +395,10 @@ if __name__ == "__main__":
     assert ((np.sum(np.array(input_gradients), axis=0) - output) < np.full(shape, 1e-6)).all()
 
     print("{:=^80s}".format("Finish Secure Aggregation"))
+
+    for u in U_3:
+        if not entities[u].verify(output, verification, len(U_3)):
+            logging.error("verification failed!")
+            sys.exit(1)
+
+    print("{:=^80s}".format("Finish Verification"))
